@@ -1,0 +1,69 @@
+version: "3"
+
+services:
+  restime-exporter:
+    image: heroahmadi/restime-exporter:1.0
+    networks:
+      - proxy
+      - monitor
+    environment:
+      - SERVICE_PORT=9000
+      - SERVICE_TARGET_URL=http://192.168.99.100/demo/hello
+      - COLLECT_INTERVAL=1
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      labels:
+        - com.df.notify=true
+        - com.df.scrapePort=9000
+        - com.df.alertName.1=resptimeabove
+        - com.df.alertIf.1=@resp_time_above:0.75,1m,0.9
+        # - com.df.alertName.2=resptimebelow
+        # - com.df.alertIf.2=@resp_time_below:0.5,5m,0.9
+        - com.df.alertName.2=resptimebelowwithmem
+        - com.df.alertIf.2=sum(rate(http_server_resp_time_bucket{job="exporter_restime-exporter",le="0.75"}[5m])) / sum(rate(http_server_resp_time_count{job="exporter_restime-exporter"}[5m])) > 0.8 and max(container_memory_usage_bytes{container_label_com_docker_swarm_service_name="app_main"} / container_spec_memory_limit_bytes{container_label_com_docker_swarm_service_name="app_main"}) < 0.3
+        - com.df.alertLabels.2=reciever=system,scale=down,service=exporter_restime-exporter,type=service
+        - com.df.alertAnnotations.2=summary=Response time of the service is below 0.25 and memory usage is below 30%
+        # - com.df.alertIf.2=sum(rate(http_server_resp_time_bucket{job="exporter_restime-exporter",le="0.5"}[2m])) / sum(rate(http_server_resp_time_count{job="exporter_restime-exporter"}[2m])) > 0.9 and 
+  cadvisor:
+    image: google/cadvisor
+    networks:
+      - monitor
+    volumes:
+      - /:/rootfs
+      - /var/run:/var/run
+      - /sys:/sys
+      - /var/lib/docker:/var/lib/docker
+    deploy:
+      mode: global
+      labels:
+        - com.df.notify=true
+        - com.df.scrapePort=8080
+
+  node-exporter:
+    image: basi/node-exporter
+    networks:
+      - monitor
+    environment:
+      - HOST_HOSTNAME=/etc/host_hostname
+    volumes:
+      - /proc:/host/proc
+      - /sys:/host/sys
+      - /:/rootfs
+      - /etc/hostname:/etc/host_hostname
+    deploy:
+      mode: global
+      labels:
+        - com.df.notify=true
+        - com.df.scrapePort=9100
+        - com.df.alertName.1=mem_load
+        - com.df.alertIf.1=(sum by (instance) (node_memory_MemTotal) - sum by (instance) (node_memory_MemFree + node_memory_Buffers + node_memory_Cached)) / sum by (instance) (node_memory_MemTotal) > 0.8
+        - com.df.alertName.2=diskload
+        - com.df.alertIf.2=@node_fs_limit:0.8
+    command: '--path.procfs="/host/proc" --path.sysfs="/host/sys" --collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($$|/)" --collector.textfile.directory="/etc/node-exporter/" --collector.conntrack --collector.diskstats --collector.entropy --collector.filefd --collector.filesystem --collector.loadavg --collector.mdadm --collector.meminfo --collector.netdev --collector.netstat --collector.stat --collector.textfile --collector.time --collector.vmstat --collector.ipvs'
+
+networks:
+  proxy:
+    external: true
+  monitor:
+    external: true
