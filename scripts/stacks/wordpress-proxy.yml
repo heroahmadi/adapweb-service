@@ -1,0 +1,85 @@
+version: '3.3'
+
+services:
+   db:
+     image: mysql:5.7
+     volumes:
+       - db-data:/var/lib/mysql
+     environment:
+       MYSQL_ROOT_PASSWORD: somewordpress
+       MYSQL_DATABASE: wordpress
+       MYSQL_USER: wordpress
+       MYSQL_PASSWORD: wordpress
+     networks:
+       - wp
+     deploy:
+      placement:
+          constraints: [node.role == manager]
+      resources:
+        reservations:
+          memory: 2048M
+        limits:
+          memory: 3072M
+
+   main:
+     depends_on:
+       - db
+     image: wordpress:latest
+     volumes:
+     - code:/code
+     - html:/var/www/html
+     networks:
+      - proxy
+      - monitor
+      - wp
+     ports:
+      - "80"  
+     environment:
+       WORDPRESS_DB_HOST: db:3306
+       WORDPRESS_DB_USER: wordpress
+       WORDPRESS_DB_PASSWORD: wordpress
+       WORDPRESS_DB_NAME: wordpress
+     deploy:
+      restart_policy:
+        condition: any
+      mode: replicated
+      placement:
+        constraints: [node.role == worker]
+      update_config:
+        # parallelism: 1
+        delay: 2s
+      replicas: 4
+      labels:
+        - com.df.notify=true
+        - com.df.distribute=true
+        - com.df.servicePath=/
+        - com.df.port=80
+        - com.df.scaleMin=2
+        - com.df.scaleMax=7
+        - com.df.alertName.1=mem_limit
+        - com.df.alertIf.1=@service_mem_limit:0.9
+        - com.df.alertFor.1=5m
+        # - traefik.docker.network=proxy
+        # - traefik.port=80
+        # - traefik.frontend.rule=PathPrefix:/;
+        # - traefik.backend.loadbalancer.sticky=true
+      resources:
+        reservations:
+          memory: 512M
+        limits:
+          memory: 1024M
+volumes:
+    db-data:
+      external: true
+    code:
+      external: true
+    html:
+      external: true
+
+networks:
+  wp:
+    external: true
+  proxy:
+    external: true
+  monitor:
+    external: true
